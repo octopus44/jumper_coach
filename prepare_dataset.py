@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import os
 import argparse
-
-from data_utils import reflect_joints3d,get_dir_list,save_pickle,load_pickle
+import copy
+from data_utils import reflect_joints3d,get_dir_list,save_pickle,load_pickle,load_dict_from_csv
 
 
 
@@ -13,6 +13,47 @@ def load_pose_predictions(input_dir):
         vid_name = d.split("/")[-1]
         pred_dict[f"{vid_name}"]= load_pickle(os.path.join(d,"hmmr_output/hmmr_output.pkl"))
     return pred_dict
+
+
+def load_annotations(input_file):
+    ann_dict = load_dict_from_csv(input_file)
+    # convert list of dicts to dict of lists (indexed by name)
+
+    return ann_dict
+
+def trim_trajectories(pred_dict,ann_dict):
+    pred_dict_trim = copy.copy(pred_dict)
+    for i, vid_name in enumerate(ann_dict["name"]):
+        if vid_name in pred_dict_trim.keys():
+            pred = pred_dict_trim[vid_name]
+            # trim trajectory to specified range
+            t0 = int(ann_dict["start_frame"][i])
+            tf = int(ann_dict["end_frame"][i])
+
+            if tf > pred["joints"].shape[0] or tf < 0:
+                print(
+                    f"WARNING: Skipping {vid_name}. \'end_frame\' {tf} is out of range for trajectory of length {pred['joints'].shape[0]}.")
+                continue
+            if t0 > pred["joints"].shape[0] or t0 < 0:
+                print(
+                    f"WARNING: Skipping {vid_name}. \'start_frame\' {t0} is out of range for trajectory of length {pred['joints'].shape[0]}.")
+                continue
+
+            for key,traj in pred.items():
+                pred_dict_trim[vid_name][key] = traj[t0:tf,...]
+    return pred_dict_trim
+
+def save_pose_trajectories(pred_dict,output_dir):
+    pose_dict = {}
+    for vid_name,pred in pred_dict.items():
+        pose_dict[vid_name] = pred["poses"]
+    save_pickle(pose_dict,os.path.join(output_dir,"pose_trajectories.pkl"))
+
+def save_cam_trajectories(pred_dict,output_dir):
+    cam_dict = {}
+    for vid_name,pred in pred_dict.items():
+        cam_dict[vid_name] = pred["cams"]
+    save_pickle(cam_dict,os.path.join(output_dir,"cam_trajectories.pkl"))
 
 def save_joint_trajectories(pred_dict,output_dir):
     # TODO: Figure out which joints we actually want
@@ -43,15 +84,10 @@ def save_joint_trajectories(pred_dict,output_dir):
         22: Right small toe
         23: L ankle
         24: R ankle
-        (added)
-        25: hip midpoint
-        26: shoulder midpoint
     """
     joints_dict = {}
     for vid_name,pred in pred_dict.items():
-        joints_reflected = reflect_joints3d(pred["joints"])
-        joints_dict[vid_name] = joints_reflected
-
+        joints_dict[vid_name] = pred["joints"]
     save_pickle(joints_dict,os.path.join(output_dir,"joint_trajectories.pkl"))
 
 
@@ -68,9 +104,13 @@ def main():
     out_dir = args.out_dir
 
     pose_preds = load_pose_predictions(input_dir)
+    ann_dicts = load_annotations("data/annotations.csv")
 
-    save_joint_trajectories(pose_preds,out_dir)
+    pose_preds_trimmed = trim_trajectories(pose_preds,ann_dicts)
 
+    save_joint_trajectories(pose_preds_trimmed,out_dir)
+    save_pose_trajectories(pose_preds_trimmed,out_dir)
+    save_cam_trajectories(pose_preds_trimmed,out_dir)
 
 
 if __name__ == '__main__':
