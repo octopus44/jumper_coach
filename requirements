@@ -1,0 +1,6 @@
+numpy==1.19.2
+scikit-learn==0.24.1
+pytorch==1.8.1
+torchvion==0.9.1
+cudatookit==10.2.89
+pickle
