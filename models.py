@@ -31,6 +31,16 @@ class Model(nn.Module):
                           bidirectional=True, batch_first=True)
         self.classifier = nn.Linear(in_features=n_rnn_hidden * 2, out_features=2)
 
+    def reset(self):
+        '''
+          Try resetting model weights to avoid
+          weight leakage.
+        '''
+        for layer in self.children():
+            if hasattr(layer, 'reset_parameters'):
+                # print(f'Reset trainable parameters of layer = {layer}')
+                layer.reset_parameters()
+
     def forward(self, x, x_lens):           
         """
         Forward pass of defined network.
