@@ -4,3 +4,5 @@ pytorch==1.8.1
 torchvion==0.9.1
 cudatookit==10.2.89
 pickle
+dtw-python
+matplotlib
