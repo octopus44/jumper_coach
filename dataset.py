@@ -44,7 +44,7 @@ def match_data(trajectories='data/joint_trajectories.pkl', annotations='data/ann
     for key in pred_dict.keys():
         for a in anno:
             if key == a[0]:
-                dataset[key] = {'pose': pred_dict[key], 'label': int(a[-1])}
+                dataset[key] = {'pose': pred_dict[key], 'label': int(a[3])}
             
     with open(output_file, 'wb') as handle:
         pickle.dump(dataset, handle, protocol=pickle.HIGHEST_PROTOCOL)
