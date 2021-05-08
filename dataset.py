@@ -2,6 +2,7 @@ import os
 import csv
 import random
 import pickle
+import numpy as np
 from sklearn.model_selection import KFold
 
 import torch
@@ -99,39 +100,67 @@ class Frames(Dataset):
     Main dataset.
     
     Inputs:
-    dataset_pkl_file(str) : Path to preprocessed pickle file.
+    dataset_pkl_file  (str) : Path to preprocessed pickle file.
+    tokenize (bool)         : Set true for tokenized verbal output.
     
     Outputs (__getitem__ returns):
     joints     : np.ndarray(T, 75)
-    labels     : int(1 or 0)
+    labels     : int(1 or 0) in binary classification; 
+                 multi-hot vector in verbal case (e.g. if labels 2,5,3 are present among 6 classes, vector=[0,0,1,1,0,1])
     directions : int(0 for left and 1 for right)
     names      : str(sequence name, for reference only, e.g. 'C0001')}
     """
     
-    def __init__(self, dataset_pkl_file='data/dataset_norm.pkl'):
+    def __init__(self, dataset_pkl_file='data/dataset_norm.pkl', tokenize=False):
         with open(dataset_pkl_file, 'rb') as handle:
             data = pickle.load(handle)
             
         self.joints = []# all seq files, num_videos * T(var) * 75
-        self.labels = []# labels, 0 or 1
+        self.labels = []
         self.names = []
         self.directions = []
+        
+        # Temporary fake data generator. Will load and process from dataset later.
+        if tokenize:
+            self.fake_vocab = ["gin tonic", "cosmopolitan", "tequila sunrise", "kamikaze", "mojito", "moscow mule"]
+            self.vocab_size = 6
+            self.count = 0 # counter for storing index mappings
+            self.vocab2idx = {} # contains unique words / phrases
+        
         for key in data.keys():
             self.joints.append(data[key]['pose'].reshape(-1, 75))  # T * 75
-            self.labels.append(data[key]['label'])
             self.names.append(key)
             self.directions.append(data[key]['direction']) # int
             
+            if tokenize==False:
+                self.labels.append(data[key]['label'])
+            else:
+                # !!!!!! Generate fake data here for now. !!!!!!
+                indices = np.random.choice(6, size=np.random.randint(6), replace=False)
+                self.labels.append(self.tokenize([self.fake_vocab[i] for i in indices])) # randomly choose from fake vocab
+            
         temp = list(zip(self.joints, self.labels, self.names, self.directions))
         random.shuffle(temp)
-        self.joints, self.labels, self.names, directions = zip(*temp)
+        self.joints, self.labels, self.names, self.directions = zip(*temp)
+            
+        #if pad_cls_token: # transformer style tokenization for input features
+        #    self.joints = [np.concatenate([np.zeros((1, 75)), s], axis=0) for s in self.joints]
+        
+    def tokenize(self, text):
+        for word in text: # every word in list
+            if word not in self.vocab2idx.keys():
+                self.vocab2idx[word] = self.count  # expand vocabulary when iterating through samples
+                self.count += 1
+
+        labels = [1 if word in text else 0 for word in self.fake_vocab] # multi label
+        return labels
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
         return self.joints[idx], self.labels[idx], self.directions[idx], self.names[idx] # use collate to deal with different lengths
-    
+
 def collate_fn(batch):
     """
     Collate function.
@@ -139,7 +168,7 @@ def collate_fn(batch):
     
     Inputs: Batched data, [x, y, n] * batch_size.
     - joints (np.ndarray) : batch_size * T(var) * (25 * 3)
-    - labels (int)        : batch_size * 1
+    - labels (int)        : batch_size * 1 (binary case); batch_size * vocab_size (verbal case)
     - directions (int)    : batch_size * 1
     - names (str)         : filename of sequence ('C0001' etc.), batch_size * 1
     
@@ -147,7 +176,7 @@ def collate_fn(batch):
     - ret(dict): {
         - x_pad    (torch.Tensor)     : batch_size * max_T * 75 
         - x_lens   (torch.LongTensor) : batch_size * 1 (each T of x)
-        - y        (torch.LongTensor) : batch_size * 1
+        - y        (torch.LongTensor) : batch_size * 1 (binary case); batch_size * vocab_size (verbal case)
         - dir      (torch.LongTensor) : batch_size * 1
         - filename (str)              : batch_size * 1
       }
