@@ -1,74 +1,157 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 
-class Model(nn.Module):
-    def __init__(self, n_embeddings=100, sliding_window_size=7, n_conv_filters=60, n_rnn_hidden=20):
-        """
-        Define neural network.
-        Inputs:
-        - n_embeddings       : Size of feature vector for each joint / xyz.
-        - sliding_window_size: Size of sliding window along time frames.
-        - n_conv_filters     : Number of convolutional filters.
-        - n_rnn_hidden       : Size of RNN hidden layer (neurons).
-        
-        Components:
-        - self.mat        (nn.Linear) : Perform a linear transformation on all joints respectively, to get a larger feature size.
-        - self.conv       (nn.Conv1d) : The "sliding window" operation, convolving along time frames -- with learnable weights.
-        - self.rnn        (nn.RNN)    : Recurrent layer, outputs stacked hidden vectors at each time frame.
-        - self.classifier (nn.Linear) : Based on the hidden vector on the last time frame, predicts whether the jump is successful.
-        """
+from dataset import Frames, collate_fn
+
+class PoseEmbedding(nn.Module):
+    """
+    Defines the feature embedding module.
+
+    Variant 1:                     -----------add-----------      --------add--------
+                                   |                       |      |                 |
+    poses -> linear layer -> pose embed -> conv layer -> window embed -> RNN -> seq embed
+                                 ^
+    direction -> embedding layer | (add)
+    (optional)
+    
+    Variant 2:                     ------------------------maxpool-------------------
+                                   |                           |                    |
+    poses -> linear layer -> pose embed -> conv layer -> window embed -> RNN -> seq embed
+                                 ^
+    direction -> embedding layer | (add)
+    (optional)
+
+    Components:
+    - self.direction_embed : (optional) Returns a feature vector for each input index (0/1 for left/right).
+    - self.frame_embed     : Perform a linear transformation on all joints respectively, to get desired feature size.
+    - self.window_embed    : The "sliding window" operation, convolving along time frames -- with learnable weights.
+    - self.sequence_embed  : Recurrent layer, outputs stacked hidden vectors at each time frame.
+                             Default is set to single direction now (bidirectional=False).
+    """
+    def __init__(self, embed_dim, sliding_window_size, variant=0, use_direction=True):
         super().__init__()
-        self.sliding_window_size = sliding_window_size
+        self.wsize = sliding_window_size
+        self.variant=variant
+        assert self.variant in range(3)
         
-        self.mat = nn.Linear(75, n_embeddings)
-        self.conv = nn.Conv1d(in_channels=n_embeddings, 
-                              out_channels=n_conv_filters, 
-                              kernel_size=sliding_window_size)
-        self.rnn = nn.RNN(input_size=n_conv_filters, 
-                          hidden_size=n_rnn_hidden, 
-                          bidirectional=True, batch_first=True)
-        self.classifier = nn.Linear(in_features=n_rnn_hidden * 2, out_features=2)
+        self.use_direction = use_direction
+        if use_direction:
+            self.direction_embed = nn.Embedding(2, embed_dim)
+
+        self.frame_embed = nn.Linear(75, embed_dim)
+        self.window_embed = nn.Conv1d(in_channels=embed_dim, 
+                                       out_channels=embed_dim, 
+                                       kernel_size=sliding_window_size)
+        self.sequence_embed = nn.RNN(input_size=embed_dim, 
+                          hidden_size=embed_dim,
+                          bidirectional=False,
+                          batch_first=True)
+
+    def forward(self, x, lens, d=None):
+        """
+        Forward pass of embedding module.
+
+        - d: direction embedding features. 
+        - f: frame embedding features. (Fix: Use F.pad to pad zeros & maintain size.)
+        - w: window embedding features.
+        - s: sequence embedding features.
+        """
+        f = self.frame_embed(x)                                        # bs, L, embed_dim
+        if self.use_direction:
+            d = self.direction_embed(d)                                # bs, 1, embed_dim
+            f += d.unsqueeze(1)                                        # incorporate direction features: broadcast along L dim.
+        f_pad = F.pad(f, (0, 0, self.wsize//2, self.wsize//2))         # pad (w/2) zeros to head and tail along L dim.
+        
+        w = self.window_embed(f_pad.permute(0, 2, 1)).permute(0, 2, 1) # bs, L, embed_dim
+        if self.variant == 1:
+            w += f
+
+        packed = pack_padded_sequence(w, lens, batch_first=True, enforce_sorted=False)
+        packed = self.sequence_embed(packed)[0]
+        s, lens = pad_packed_sequence(packed, batch_first=True)        # bs, L, embed_dim
+        if self.variant == 1:
+            s += w
+        
+        elif self.variant == 2:
+            w = torch.cat([e.unsqueeze(3) for e in [f,w,s]], dim=3)
+            w, _ = torch.max(w, dim=3)
+
+        return w, lens
+
+class Classifier(nn.Module):
+    def __init__(self, embed_dim, n_classes=2):
+        super().__init__()
+        self.linear = nn.Linear(in_features=embed_dim, out_features=n_classes)
+        self.activation = None
+
+    def forward(self, x):
+        x = self.linear(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+class SequenceAnalysis(nn.Module):
+    """
+    Defines full pipeline for each segment.
+
+    Inputs:
+    - embed_dim (int)           : Size of feature vectors. Keep consistent across all layers for stacking.
+    - sliding_window_size (int) : Size of sliding window along time frames.
+    - use_direction (bool)      : If true, add 'direction' (right/left) into features.
+    - variant (int)             : Specify variant of embedding pipeline (0, 1, 2). Yet to be experimented.
+    - vocab_size (int)          : If specified, will be the size of vocabulary (number of verbal suggestions).
+                                  Otherwise, do classification for "good jump, bad jump".
+
+    Components:
+    - self.pose_embedding : PoseEmbedding() class. Module for feature embedding.
+    - self.classifier     : Classifier() class. Module for predicting either verbal suggestion or jump success.
+    """
+
+    def __init__(self, embed_dim=128, sliding_window_size=7, variant=0, use_direction=True, vocab_size=None):
+        super().__init__()
+        self.pose_embedding  = PoseEmbedding(embed_dim=embed_dim, 
+                                             sliding_window_size=sliding_window_size, 
+                                             variant=variant,
+                                             use_direction=use_direction)
+        self.classifier      = Classifier(embed_dim=embed_dim) if vocab_size is None \
+                          else Classifier(embed_dim=embed_dim, n_classes=vocab_size) 
 
     def reset(self):
-        '''
-          Try resetting model weights to avoid
-          weight leakage.
-        '''
-        for layer in self.children():
-            if hasattr(layer, 'reset_parameters'):
-                # print(f'Reset trainable parameters of layer = {layer}')
-                layer.reset_parameters()
+        """
+        For K-Fold cross validation.
+        Try resetting model weights to avoid weight leakage.
+        """
 
-    def forward(self, x, x_lens):           
+        for module in [self.pose_embedding, self.classifier]:
+            for layer in module.children():
+                if hasattr(layer, 'reset_parameters'):
+                    #print(f'Reset trainable parameters of layer = {layer}')
+                    layer.reset_parameters()
+
+    def forward(self, x, lens, d=None): 
         """
         Forward pass of defined network.
         
         Inputs: 
         - x     (torch.Tensor(batch_size, max_length, 75)) : Input features. Padded to be the max length in each batch. 
-        - x_len (torch.LongTensor(batch_size))             : Stores original lengths of each sample in batch, e.g.[122, 94, 130, 78]
-        
+        - lens  (torch.LongTensor(batch_size))             : Stores original lengths of each sample in batch, e.g.[122, 94, 130, 78]
+        - d     (torch.LongTensor(batch_size))             : 'direction' indicator for each input sequence. (0/1 for left/right)
+
         Outputs:
-        - probs (torch.Tensor(batch_size, 2))              : Probability of each label (0 and 1).
+        - probs (torch.Tensor(batch_size, num_classes))    : Probability of each label.
         """
-        
-        x = self.mat(x)                                                    # bs * L * 100
-        x = self.conv(x.permute(0,2,1))                                    # bs * n_filters * L' 
-        x_lens = x_lens - self.sliding_window_size + 1                     # L' = L - k + 1. 
-                                                                           # Shrinks because of the sliding window size.
-        
-        packed_x = pack_padded_sequence(x.permute(0,2,1), x_lens, batch_first=True, enforce_sorted=False)
-        packed_out = self.rnn(packed_x)[0]
-        out, out_lens = pad_packed_sequence(packed_out, batch_first=True)  # bs * L' * (n_hidden*2)
-        out = out.permute(0, 2, 1)                                         # bs * (n_hidden*2) * L'
+
+        x, lens = self.pose_embedding(x, lens, d) # bs, L, embed_dim
+        x = x.permute(0, 2, 1)                    # bs, embed_dim, L
 
         st = []
-        for inst, l in zip(out, out_lens):
-            st.append(inst[:, l - 1])                                      # stack RNN output feature vectors & exclude padding
-        st = torch.stack(st)                                               # bs * (n_hidden*2)
-        
-        #probs = F.softmax(self.classifier(st), dim=1)
-        probs = self.classifier(st)                                        # outputs probability
-        return probs
+        for inst, l in zip(x, lens):
+            st.append(inst[:, l - 1])             # stack RNN output feature vectors & exclude padding
+        st = torch.stack(st)                      # bs * embed_dim
 
+        probs = self.classifier(st)               # outputs probability
+        return probs
