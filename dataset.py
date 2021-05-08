@@ -122,10 +122,9 @@ class Frames(Dataset):
         
         # Temporary fake data generator. Will load and process from dataset later.
         if tokenize:
-            self.fake_vocab = ["gin tonic", "cosmopolitan", "tequila sunrise", "kamikaze", "mojito", "moscow mule"]
+            fake_vocab = ["gin tonic", "cosmopolitan", "tequila sunrise", "kamikaze", "mojito", "moscow mule"]
             self.vocab_size = 6
-            self.count = 0 # counter for storing index mappings
-            self.vocab2idx = {} # contains unique words / phrases
+            self.vocab2idx = {v : k for k, v in enumerate(fake_vocab)}# contains unique words / phrases
         
         for key in data.keys():
             self.joints.append(data[key]['pose'].reshape(-1, 75))  # T * 75
@@ -136,23 +135,24 @@ class Frames(Dataset):
                 self.labels.append(data[key]['label'])
             else:
                 # !!!!!! Generate fake data here for now. !!!!!!
-                indices = np.random.choice(6, size=np.random.randint(6), replace=False)
-                self.labels.append(self.tokenize([self.fake_vocab[i] for i in indices])) # randomly choose from fake vocab
+                terms = np.random.choice(fake_vocab, size=np.random.randint(6), replace=False) # randomly choose words from fake vocab
+                self.labels.append(self.tokenize(terms)) 
             
+        # prevent always choosing the same items for each fold, when doing kfold.
         temp = list(zip(self.joints, self.labels, self.names, self.directions))
         random.shuffle(temp)
         self.joints, self.labels, self.names, self.directions = zip(*temp)
-            
-        #if pad_cls_token: # transformer style tokenization for input features
-        #    self.joints = [np.concatenate([np.zeros((1, 75)), s], axis=0) for s in self.joints]
-        
-    def tokenize(self, text):
-        for word in text: # every word in list
-            if word not in self.vocab2idx.keys():
-                self.vocab2idx[word] = self.count  # expand vocabulary when iterating through samples
-                self.count += 1
 
-        labels = [1 if word in text else 0 for word in self.fake_vocab] # multi label
+    def tokenize(self, text):
+        """
+        Inputs:
+        text (list) : list of terms (must be present in vocabulary), e.g. ["gin tonic", "kamikaze"]
+        
+        Outputs: 
+        labels (list) : multi-hot encoding of text, indicating the presence of each vocab item. 
+                        e.g. matching the example above to the dictionary will yield [1, 0, 0, 1, 0, 0]. 
+        """
+        labels = [1 if term in text else 0 for term in self.vocab2idx.keys()] # multi label
         return labels
 
     def __len__(self):
