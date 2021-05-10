@@ -53,8 +53,6 @@ def reflect_joints3d(joints):
     flip_mat = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32)
     joints_flipped = np.dot(flip_mat,joints[...,np.newaxis]).T[0]
     joints_flipped=np.moveaxis(joints_flipped, [1, 0], [0,1])
-
-
     return joints_flipped
 
 

@@ -29,11 +29,13 @@ for name1 in joint_dict_norm.keys():
 save_pickle(dtw_alignment_dict,os.path.join("data","dtw_alignments.pkl"))
 
 
-# plot_skeleton_3d(joints_norm[0,:,:])
+# plot_skeleton_3d(joint_dict_norm["C0023b"][0,:,:])
 # plot_skeleton_3d(joint_dict["C0023b"][0,:,:])
-# plot_skeleton_3d(joints_norm[0,:,:])
-# plot_skeleton_3d(joint_dict["C0010b"][0,:,:])
-# plt.show()
+# plot_skeleton_3d(joint_dict_norm["C0010b"][0,:,:])
+# plot_skeleton_3d(joint_dict["C0010b"][12,:,:])
+plot_skeleton_3d(joint_dict["C0002"][72,:,:])
+print(joint_dict["C0001"][53,:,:])
+plt.show()
 
 
 
