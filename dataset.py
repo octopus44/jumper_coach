@@ -4,6 +4,7 @@ import random
 import pickle
 import numpy as np
 from sklearn.model_selection import KFold
+from collections import defaultdict, Counter
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -12,45 +13,77 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 from typing import TypeVar
 T_co = TypeVar('T_co', covariant=True)
 
-
-def match_data(trajectories='data/joint_trajectories_norm.pkl', annotations='data/annotations.csv', output_file='data/dataset_norm.pkl'):
+def parse_labels(labels_str):
     """
-    To match joint trajectory predictions & annotations (success or fail) by video sequence name.
-    
+    Parse strings from .csv file to list of string labels.
     Inputs:
-    - trajectories(str) : directory of joint trajectory pickle file.
-    - annotations (str) : directory of annotations csv file.
-    - output_file (str) : desired output directory and filename (create matched pickle file)
+    labels_str   (str) : A big string of labels, loaded from .csv file, e.g. "['a'; 'b'; 'c']"
     
-    Output: *Saves new pickle file at specified directory*
-    Format: {'C0001': {'pose': np.ndarray(T, 25, 3), 'label' : int(1 or 0)}, 
-             'C0002': {'pose': np.ndarray(T, 25, 3), 'label' : int(1 or 0)},
-             ......
-    }
+    Outputs:
+    labels (list[str]) : List of original string labels, e.g. ['a', 'b', 'c']. 
     """
     
-    pred_dict = pickle.load(open(os.path.join(trajectories), "rb"))
-    #for key in pred_dict.keys():
-    #    print(key, pred_dict[key].shape) #T, 25, 3
+    labels = [l.replace("\'","").strip(" ") for l in labels_str.strip("[\']").split(";")]
+    return labels
 
-    with open(annotations, newline='') as csvfile:
+def match_labels(trajectories='data/joint_trajectories_norm.pkl',
+                 annotations='data/annotations.csv', 
+                 output_file='data/dataset_with_labels.pkl'):
+    
+    """
+    Match predicted trajectories and annotations.
+    
+    Input:
+    trajectories (str) : .pkl file of trajectory predictions. 
+    annotations  (str) : .csv file of annotation.
+    output_file  (str) : .pkl file of destination. 
+    
+    Output: 
+    None (write to new .pkl file).
+    """
+
+    # Load prediction file
+    pred_dict = pickle.load(open(os.path.join(trajectories), "rb")) # 'filename': T * 25 * 3
+    
+    # Load label file
+    with open('data/labels.csv', newline='') as csvfile:
         spamreader = csv.reader(csvfile, delimiter=',')
         anno = []
         for row in spamreader:
             anno.append(row)
         
     anno = anno[1:] # remove header
-    
-    # match sequences with annos
+
     dataset = {}
-    for key in pred_dict.keys():
-        for a in anno:
-            if key == a[0]:
-                dataset[key] = {'pose': pred_dict[key], 'label': int(a[3]), 'direction' : 0 if a[4]=='right' else 1}
-            
+    i = 0
+    for key in pred_dict.keys(): # all video sequences
+        for row in anno:
+            if key == row[0]:
+                sid = int(row[1])
+                rid = [int(row[5]), int(row[6])]
+                cid = [int(row[8]), int(row[9])]
+                tid = [int(row[11]), int(row[12])]
+                rposes = pred_dict[key][rid[0] - sid : rid[0] + rid[1] - sid]
+                cposes = pred_dict[key][cid[0] - sid : cid[0] + cid[1] - sid]
+                tposes = pred_dict[key][tid[0] - sid : tid[0] + tid[1] - sid]
+                
+                if not (rposes.shape[0] > 0 and cposes.shape[0] > 0 and tposes.shape[0] > 0):
+                    # filter out samples with segments < 1 frame long.
+                    continue
+                    
+                ret = {'bar_outcome': int(row[3]), 'direction': row[4],
+                       'runup_poses' : rposes,
+                       'curve_poses' : cposes,
+                       'takeoff_poses' : tposes,
+                       'runup_labels': parse_labels(row[7]),
+                       'curve_labels': parse_labels(row[10]),
+                       'takeoff_labels': parse_labels(row[13]) }
+
+                dataset[key] = ret
+
     with open(output_file, 'wb') as handle:
         pickle.dump(dataset, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
+        
 class Subset(Dataset[T_co]):
     """
     For splitting datasets (at each fold of cross validation).
@@ -101,47 +134,58 @@ class Frames(Dataset):
     
     Inputs:
     dataset_pkl_file  (str) : Path to preprocessed pickle file.
-    tokenize (bool)         : Set true for tokenized verbal output.
+    seg_name          (str) : Specify which segment to build dataset on, [runup, curve, takeoff]
+    vocab_size        (int) : Specify how many most frequent labels to preserve. Will also be classifier dim.
     
     Outputs (__getitem__ returns):
-    joints     : np.ndarray(T, 75)
-    labels     : int(1 or 0) in binary classification; 
-                 multi-hot vector in verbal case (e.g. if labels 2,5,3 are present among 6 classes, vector=[0,0,1,1,0,1])
-    directions : int(0 for left and 1 for right)
-    names      : str(sequence name, for reference only, e.g. 'C0001')}
+    joints      : np.ndarray(T, 75)
+    bar_outcome : int(1 or 0) 
+    labels      : multi-hot vector in verbal case (e.g. if labels 2,5,3 are present among 6 classes, vector=[0,0,1,1,0,1])
+    directions  : int(0 for left and 1 for right)
+    names       : str(sequence name, for reference only, e.g. 'C0001')}
     """
     
-    def __init__(self, dataset_pkl_file='data/dataset_norm.pkl', tokenize=False):
+    def __init__(self, dataset_pkl_file='data/dataset_with_labels.pkl', seg_name='runup', vocab_size=10):
+        assert seg_name in ['runup', 'curve', 'takeoff']
         with open(dataset_pkl_file, 'rb') as handle:
             data = pickle.load(handle)
             
         self.joints = []# all seq files, num_videos * T(var) * 75
+        self.bar_outcome = []
         self.labels = []
         self.names = []
         self.directions = []
         
-        # Temporary fake data generator. Will load and process from dataset later.
-        if tokenize:
-            fake_vocab = ["gin tonic", "cosmopolitan", "tequila sunrise", "kamikaze", "mojito", "moscow mule"]
-            self.vocab_size = 6
-            self.vocab2idx = {v : k for k, v in enumerate(fake_vocab)}# contains unique words / phrases
+        self.vocab_size = vocab_size
         
+        # Temporary fake data generator. Will load and process from dataset later.
+        # generate dictionary here
+        count = []
         for key in data.keys():
-            self.joints.append(data[key]['pose'].reshape(-1, 75))  # T * 75
+            labels = data[key][seg_name+'_labels']
+            for l in labels:
+                count.append(l)
+                
+        counter = Counter(count)
+        self.vocab2idx = defaultdict(lambda : vocab_size)
+        idx = 0
+        for k, v in counter.most_common(vocab_size):
+            self.vocab2idx[k] = idx
+            idx += 1
+        
+        self.idx2vocab = {v : k for k, v in self.vocab2idx.items()}
+        for key in data.keys():
+            self.joints.append(data[key][seg_name+'_poses'].reshape(-1, 75))  # T * 75
             self.names.append(key)
-            self.directions.append(data[key]['direction']) # int
+            self.directions.append(0 if data[key]['direction'] == 'left' else 1) # int
             
-            if tokenize==False:
-                self.labels.append(data[key]['label'])
-            else:
-                # !!!!!! Generate fake data here for now. !!!!!!
-                terms = np.random.choice(fake_vocab, size=np.random.randint(6), replace=False) # randomly choose words from fake vocab
-                self.labels.append(self.tokenize(terms)) 
+            self.bar_outcome.append(data[key]['bar_outcome'])
+            self.labels.append(self.tokenize(data[key][seg_name+'_labels'])) 
             
         # prevent always choosing the same items for each fold, when doing kfold.
-        temp = list(zip(self.joints, self.labels, self.names, self.directions))
+        temp = list(zip(self.joints, self.bar_outcome, self.labels, self.names, self.directions))
         random.shuffle(temp)
-        self.joints, self.labels, self.names, self.directions = zip(*temp)
+        self.joints, self.bar_outcome, self.labels, self.names, self.directions = zip(*temp)
 
     def tokenize(self, text):
         """
@@ -149,17 +193,19 @@ class Frames(Dataset):
         text (list) : list of terms (must be present in vocabulary), e.g. ["gin tonic", "kamikaze"]
         
         Outputs: 
-        labels (list) : multi-hot encoding of text, indicating the presence of each vocab item. 
-                        e.g. matching the example above to the dictionary will yield [1, 0, 0, 1, 0, 0]. 
+        labels (np.ndarray) : multi-hot encoding of text, indicating the presence of each vocab item.  
         """
-        labels = [1 if term in text else 0 for term in self.vocab2idx.keys()] # multi label
-        return labels
+        multi_hot = np.zeros(self.vocab_size)
+        for k, v in self.idx2vocab.items():
+            if v in text:
+                multi_hot[k] = 1
+        return multi_hot
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return self.joints[idx], self.labels[idx], self.directions[idx], self.names[idx] # use collate to deal with different lengths
+        return self.joints[idx], self.labels[idx], self.bar_outcome[idx], self.directions[idx], self.names[idx]
 
 def collate_fn(batch):
     """
@@ -168,17 +214,19 @@ def collate_fn(batch):
     
     Inputs: Batched data, [x, y, n] * batch_size.
     - joints (np.ndarray) : batch_size * T(var) * (25 * 3)
-    - labels (int)        : batch_size * 1 (binary case); batch_size * vocab_size (verbal case)
+    - bar_outcome (int)   : batch_size * 1
+    - labels (np.ndarray) : batch_size * vocab_size
     - directions (int)    : batch_size * 1
     - names (str)         : filename of sequence ('C0001' etc.), batch_size * 1
     
     Outputs: Stacks padded data into batches.
     - ret(dict): {
-        - x_pad    (torch.Tensor)     : batch_size * max_T * 75 
-        - x_lens   (torch.LongTensor) : batch_size * 1 (each T of x)
-        - y        (torch.LongTensor) : batch_size * 1 (binary case); batch_size * vocab_size (verbal case)
-        - dir      (torch.LongTensor) : batch_size * 1
-        - filename (str)              : batch_size * 1
+        - x_pad       (torch.Tensor)     : batch_size * max_T * 75 
+        - x_lens      (torch.LongTensor) : batch_size * 1 (each T of x)
+        - bar_outcome (torch.LongTensor) : batch_size * 1 (binary case)
+        - labels      (torch.LongTensor) : batch_size * vocab_size (verbal case)
+        - dir         (torch.LongTensor) : batch_size * 1
+        - filename    (str)              : batch_size * 1
       }
     
     We have to pad the sequences with different lengths here & record their lengths respectively, for the dataloader & RNNs to work.
@@ -186,13 +234,14 @@ def collate_fn(batch):
     
     joints  = [item[0] for item in batch]
     labels = torch.LongTensor([item[1] for item in batch])
-    directions = torch.LongTensor([item[2] for item in batch])
-    names  = [item[3] for item in batch]
+    bar_outcome = torch.LongTensor([item[2] for item in batch])
+    directions = torch.LongTensor([item[3] for item in batch])
+    names  = [item[4] for item in batch]
 
     x = [torch.Tensor(xx) for xx in joints]
 
     lens = torch.LongTensor([len(xx) for xx in joints])
     x_pad = pad_sequence([xx for xx in x], batch_first=True, padding_value=0)
 
-    ret = {'x' : x_pad, 'x_lens' : lens, 'y': labels, 'dir': directions, 'filename' : names}
+    ret = {'x' : x_pad, 'x_lens' : lens, 'labels': labels, 'bar_outcome' : bar_outcome, 'dir': directions, 'filename' : names}
     return ret
