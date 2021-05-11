@@ -132,15 +132,23 @@ if __name__ == "__main__":
     """
     
     parser = argparse.ArgumentParser()
+    # Dataset arguments
     parser.add_argument('--dataset_path', type=str, help="specify parsed dataset location.", default='data/dataset_with_labels.pkl')
     parser.add_argument('--create_dataset', action='store_true', help='create dataset by merging files if specified.')
     parser.add_argument('--save_model_path', type=str, default='', help='specify model saving path.')
     
+    # Model configurations
+    parser.add_argument('--variant', type=int, default=0, help='specify variant of embedding method.')
+    parser.add_argument('--embed_dim', type=int, default=128, help='specify dimension of feature vectors.')
+    parser.add_argument('--sliding_window_size', type=int, default=3, help='specify size of 1D convolution.')
     parser.add_argument('--vocab_size', type=int, default=10, help='specify vocab size of dataset.')
-    parser.add_argument('--epochs', type=int, default=100, help='specify number of epochs to train.')
-    parser.add_argument('--lr', type=float, default=1e-2, help='specify learning rate.')
-    parser.add_argument('--lr_seg', type=float, default=1e-2, help='specify learning rate for segment classification layers.')
     
+    # Training configurations
+    parser.add_argument('--epochs', type=int, default=100, help='specify number of epochs to train.')
+    parser.add_argument('--lr', type=float, default=1e-4, help='specify learning rate.')
+    parser.add_argument('--lr_seg', type=float, default=1e-3, help='specify learning rate for segment classification layers.')
+    
+    # Other training hyperparameters
     parser.add_argument('--weight_decay', type=float, default=1e-2, help='specify regularizer weight.')
     parser.add_argument('--pos_weight', type=float, default=5.0, help='specify weighting for bce loss.')
     parser.add_argument('--alpha', type=float, default=0.9, help='specify weighting between both loss functions.')
@@ -154,7 +162,7 @@ if __name__ == "__main__":
         match_labels(trajectories='data/joint_trajectories_norm.pkl', annotations='data/labels.csv', output_file=args.dataset_path)
         
     dataset = Frames(args.dataset_path, vocab_size=args.vocab_size)
-    model = JumpPrediction(embed_dim=128, sliding_window_size=3, variant=0, vocab_size=dataset.vocab_size)
+    model = JumpPrediction(embed_dim=args.embed_dim, sliding_window_size=args.sliding_window_size, variant=args.variant, vocab_size=dataset.vocab_size)
     model = train(model, dataset, vocab_size=args.vocab_size, epochs=args.epochs, \
                   lr=args.lr, lr_seg=args.lr_seg, weight_decay=args.weight_decay, pos_weight=args.pos_weight, alpha=args.alpha, n_splits=args.n_splits)
     if args.save_model_path:

@@ -10,6 +10,7 @@ from dataset import Frames, collate_fn
 class PoseEmbedding(nn.Module):
     """
     Defines the feature embedding module.
+    Variant 0: (No adding or maxpool operations mentioned below.)
 
     Variant 1:                     -----------add-----------      --------add--------
                                    |                       |      |                 |
@@ -87,10 +88,10 @@ class PoseEmbedding(nn.Module):
             s += w
         
         elif self.variant == 2:
-            w = torch.cat([e.unsqueeze(3) for e in [f,w,s]], dim=3)
-            w, _ = torch.max(w, dim=3)
+            s = torch.cat([e.unsqueeze(3) for e in [f,w,s]], dim=3)
+            s, _ = torch.max(s, dim=3)
 
-        return w, lens
+        return s, lens
 
 class Classifier(nn.Module):
     """
@@ -184,7 +185,25 @@ class SequenceAnalysis(nn.Module):
         return probs
 
 class JumpPrediction(nn.Module):
-    def __init__(self, embed_dim=128, sliding_window_size=7, variant=0, use_direction=True, vocab_size=None):
+    """
+    Defines full pipeline for each segment.
+
+    Inputs:
+    - embed_dim (int)           : Size of feature vectors. Keep consistent across all layers for stacking.
+    - sliding_window_size (int) : Size of sliding window along time frames.
+    - use_direction (bool)      : If true, add 'direction' (right/left) into features.
+    - variant (int)             : Specify variant of embedding pipeline (0, 1, 2). Yet to be experimented.
+    - vocab_size (int)          : If specified, will be the size of vocabulary (number of verbal suggestions).
+                                  Otherwise, do classification for "good jump, bad jump".
+
+    Components:
+    for [runup, curve, takeoff]:
+        - x_embedding  : PoseEmbedding() class. Module for feature embedding of each segment.
+        - classifier_x : Classifier() class. Module for predicting verbal labels of each segment.
+    - self.classifier  : Classifier() class. General classifier to predict binary output of bar success.
+                         Takes in concatenated feature vectors of 3 segments, so input dimension is 3 * embedding_dim.
+    """
+    def __init__(self, embed_dim=128, sliding_window_size=3, variant=0, use_direction=True, vocab_size=None):
         super().__init__()
         self.runup_embedding  = PoseEmbedding(embed_dim=embed_dim, 
                                              sliding_window_size=sliding_window_size, 
@@ -215,8 +234,9 @@ class JumpPrediction(nn.Module):
         Forward pass of defined network.
         
         Inputs: 
-        - x     (torch.Tensor(batch_size, max_length, 75)) : Input features. Padded to be the max length in each batch. 
-        - lens  (torch.LongTensor(batch_size))             : Stores original lengths of each sample in batch, e.g.[122, 94, 130, 78]
+        for [runup, curve, takeoff]:
+            - x     (torch.Tensor(batch_size, max_length, 75)) : Input features. Padded to be the max length in each batch. 
+            - lens  (torch.LongTensor(batch_size))             : Stores original lengths of each sample in batch, e.g.[122, 94, 130, 78]
         - d     (torch.LongTensor(batch_size))             : 'direction' indicator for each input sequence. (0/1 for left/right)
 
         Outputs:
