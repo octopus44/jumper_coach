@@ -14,7 +14,7 @@ def hamming_distance(a, b):
     a, b = a.cpu().detach().numpy(), b.cpu().detach().numpy()
     return np.sum([(a1 != b1) for (a1, b1) in zip(a, b)])
 
-def train(model, dataset, vocab_size, epochs, lr, lr_seg, weight_decay, pos_weight, alpha, n_splits):
+def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay=1e-2,  pos_weight=5.0, alpha=0.9, n_splits=5):
     """
     Training pipeline.
     
@@ -49,7 +49,6 @@ def train(model, dataset, vocab_size, epochs, lr, lr_seg, weight_decay, pos_weig
         validloader = DataLoader(valid_dataset, batch_size=4, shuffle=True, collate_fn=collate_fn)
         
         model.reset()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
         seg_fc_params = [p for n,p in model.named_parameters() if n.startswith('classifier_')] # seg classifiers are 'classifier_r', etc.
         other_params = [p for n,p in model.named_parameters() if not n.startswith('classifier_')]
         
@@ -117,10 +116,10 @@ def train(model, dataset, vocab_size, epochs, lr, lr_seg, weight_decay, pos_weig
                 print("Epoch: {}, [Bar] Train Acc: {:.4f}, Valid Acc: {:.4f}, [Seg] Train Acc: {:.4f}, Valid Acc: {:.4f}".format(
                     e,train_bin_acc , val_bin_acc, train_seg_acc , val_seg_acc))
 
-        val_acc_seg_cv += val_seg_acc
-        train_acc_seg_cv+= train_seg_acc
-        val_acc_bin_cv += val_bin_acc
-        train_acc_bin_cv+= train_bin_acc
+        val_acc_seg_cv   += val_seg_acc
+        train_acc_seg_cv += train_seg_acc
+        val_acc_bin_cv   += val_bin_acc
+        train_acc_bin_cv += train_bin_acc
 
     print("Cross Validation Accuracy - [Bar] Train: {:.4f}, Valid: {:.4f}".format(train_acc_bin_cv/n_splits, val_acc_bin_cv/n_splits))
     print("Cross Validation Accuracy - [Seg] Train: {:.4f}, Valid: {:.4f}".format(train_acc_seg_cv/n_splits, val_acc_seg_cv/n_splits))
@@ -139,10 +138,10 @@ if __name__ == "__main__":
     
     parser.add_argument('--vocab_size', type=int, default=10, help='specify vocab size of dataset.')
     parser.add_argument('--epochs', type=int, default=100, help='specify number of epochs to train.')
-    parser.add_argument('--lr', type=float, default=1e-4, help='specify learning rate.')
-    parser.add_argument('--lr_seg', type=float, default=1e-3, help='specify learning rate for segment classification layers.')
+    parser.add_argument('--lr', type=float, default=1e-2, help='specify learning rate.')
+    parser.add_argument('--lr_seg', type=float, default=1e-2, help='specify learning rate for segment classification layers.')
     
-    parser.add_argument('--weight_decay', type=float, default=1e-1, help='specify regularizer weight.')
+    parser.add_argument('--weight_decay', type=float, default=1e-2, help='specify regularizer weight.')
     parser.add_argument('--pos_weight', type=float, default=5.0, help='specify weighting for bce loss.')
     parser.add_argument('--alpha', type=float, default=0.9, help='specify weighting between both loss functions.')
     parser.add_argument('--n_splits', type=int, default=5, help='specify number of folds for K-fold cross validation.')
