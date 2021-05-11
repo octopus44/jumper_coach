@@ -134,78 +134,98 @@ class Frames(Dataset):
     
     Inputs:
     dataset_pkl_file  (str) : Path to preprocessed pickle file.
-    seg_name          (str) : Specify which segment to build dataset on, [runup, curve, takeoff]
     vocab_size        (int) : Specify how many most frequent labels to preserve. Will also be classifier dim.
+    multi            (bool) : Specify either multi-label case or not. (False is deprecated)
     
     Outputs (__getitem__ returns):
-    joints      : np.ndarray(T, 75)
+    for [runup, curve, takeoff]:
+        joints      : np.ndarray(T, 75)
+        labels      : multi-hot vector (e.g. if labels 2,5,3 are present among 6 classes, vector=[0,0,1,1,0,1])
     bar_outcome : int(1 or 0) 
-    labels      : multi-hot vector in verbal case (e.g. if labels 2,5,3 are present among 6 classes, vector=[0,0,1,1,0,1])
     directions  : int(0 for left and 1 for right)
     names       : str(sequence name, for reference only, e.g. 'C0001')}
     """
     
-    def __init__(self, dataset_pkl_file='data/dataset_with_labels.pkl', seg_name='runup', vocab_size=10):
-        assert seg_name in ['runup', 'curve', 'takeoff']
+    def __init__(self, dataset_pkl_file='data/dataset_with_labels.pkl', vocab_size=10, multi=True):
         with open(dataset_pkl_file, 'rb') as handle:
             data = pickle.load(handle)
             
-        self.joints = []# all seq files, num_videos * T(var) * 75
+        self.r_joints, self.c_joints, self.t_joints = [], [], [] # all seq files, num_videos * T(var) * 75
         self.bar_outcome = []
-        self.labels = []
+        self.r_labels, self.c_labels, self.t_labels = [], [], []
         self.names = []
         self.directions = []
         
-        self.vocab_size = vocab_size
+        if multi:
+            self.vocab_size = vocab_size
+        else:
+            self.vocab_size = vocab_size + 1 # additional slot
         
         # Temporary fake data generator. Will load and process from dataset later.
         # generate dictionary here
-        count = []
-        for key in data.keys():
-            labels = data[key][seg_name+'_labels']
-            for l in labels:
-                count.append(l)
+        self.r_vocab2idx, self.c_vocab2idx, self.t_vocab2idx = {}, {}, {} # vocab to id
+        for seg, mapping in zip(['runup', 'curve', 'takeoff'], [self.r_vocab2idx, self.c_vocab2idx, self.t_vocab2idx]):
+            count = []
+            for key in data.keys():
+                labels = data[key][seg+'_labels']
+                for l in labels:
+                    count.append(l)
                 
-        counter = Counter(count)
-        self.vocab2idx = defaultdict(lambda : vocab_size)
-        idx = 0
-        for k, v in counter.most_common(vocab_size):
-            self.vocab2idx[k] = idx
-            idx += 1
+            counter = Counter(count)
+            idx = 0
+            for k, v in counter.most_common(vocab_size):
+                mapping[k] = idx
+                idx += 1
         
-        self.idx2vocab = {v : k for k, v in self.vocab2idx.items()}
-        for key in data.keys():
-            self.joints.append(data[key][seg_name+'_poses'].reshape(-1, 75))  # T * 75
+        for key in data.keys(): # all videos
+            
             self.names.append(key)
             self.directions.append(0 if data[key]['direction'] == 'left' else 1) # int
-            
             self.bar_outcome.append(data[key]['bar_outcome'])
-            self.labels.append(self.tokenize(data[key][seg_name+'_labels'])) 
+            
+            for seg, joints, labels, mapping in zip(['runup', 'curve', 'takeoff'], 
+                                                     [self.r_joints, self.c_joints, self.t_joints],
+                                                     [self.r_labels, self.c_labels, self.t_labels],
+                                                     [self.r_vocab2idx, self.c_vocab2idx, self.t_vocab2idx]):
+                
+                joints.append(data[key][seg+'_poses'].reshape(-1, 75))  # T * 75
+                labels.append(self.tokenize(data[key][seg+'_labels'], mapping=mapping, multi=multi)) 
             
         # prevent always choosing the same items for each fold, when doing kfold.
-        temp = list(zip(self.joints, self.bar_outcome, self.labels, self.names, self.directions))
+        temp = list(zip(self.r_joints, self.c_joints, self.t_joints, self.r_labels, self.c_labels, self.t_labels, \
+                        self.bar_outcome, self.names, self.directions))
         random.shuffle(temp)
-        self.joints, self.bar_outcome, self.labels, self.names, self.directions = zip(*temp)
+        self.r_joints, self.c_joints, self.t_joints, self.r_labels, self.c_labels, self.t_labels, \
+        self.bar_outcome, self.names, self.directions = zip(*temp)
 
-    def tokenize(self, text):
+    def tokenize(self, text, mapping, multi=True):
         """
         Inputs:
-        text (list) : list of terms (must be present in vocabulary), e.g. ["gin tonic", "kamikaze"]
+        text    (list) : list of terms (must be present in vocabulary), e.g. ["gin tonic", "kamikaze"].
+        mapping (dict) : dictionary mapping vocabulary to index.
         
         Outputs: 
         labels (np.ndarray) : multi-hot encoding of text, indicating the presence of each vocab item.  
         """
-        multi_hot = np.zeros(self.vocab_size)
-        for k, v in self.idx2vocab.items():
-            if v in text:
-                multi_hot[k] = 1
-        return multi_hot
+        if multi:
+            multi_hot = np.zeros(self.vocab_size)
+            for v, k in mapping.items(): # descending order from most common
+                if v in text:
+                    multi_hot[k] = 1
+            return multi_hot
+        else:
+            for v, k in mapping.items(): # descending order from most common
+                if v in text:
+                    return k
+            return self.vocab_size - 1 # return unknown token (last slot) in this case
 
     def __len__(self):
-        return len(self.labels)
+        return len(self.names)
 
     def __getitem__(self, idx):
-        return self.joints[idx], self.labels[idx], self.bar_outcome[idx], self.directions[idx], self.names[idx]
+        return self.r_joints[idx], self.c_joints[idx], self.t_joints[idx], \
+                self.r_labels[idx], self.c_labels[idx], self.t_labels[idx], \
+                self.bar_outcome[idx], self.directions[idx], self.names[idx]
 
 def collate_fn(batch):
     """
@@ -213,18 +233,22 @@ def collate_fn(batch):
     Processes the data after Frame.__getitem__, in order to pass them into dataloaders.
     
     Inputs: Batched data, [x, y, n] * batch_size.
-    - joints (np.ndarray) : batch_size * T(var) * (25 * 3)
+    for [runup, curve, takeoff]:
+        - joints (np.ndarray) : batch_size * T(var) * (25 * 3)
+        - labels (np.ndarray) : batch_size * vocab_size
+        
     - bar_outcome (int)   : batch_size * 1
-    - labels (np.ndarray) : batch_size * vocab_size
     - directions (int)    : batch_size * 1
     - names (str)         : filename of sequence ('C0001' etc.), batch_size * 1
     
     Outputs: Stacks padded data into batches.
     - ret(dict): {
-        - x_pad       (torch.Tensor)     : batch_size * max_T * 75 
-        - x_lens      (torch.LongTensor) : batch_size * 1 (each T of x)
-        - bar_outcome (torch.LongTensor) : batch_size * 1 (binary case)
-        - labels      (torch.LongTensor) : batch_size * vocab_size (verbal case)
+        for [runup, curve, takeoff]:
+            - pad       (torch.Tensor)     : batch_size * max_T * 75 
+            - lens      (torch.LongTensor) : batch_size * 1 (each T of x)
+            - labels    (torch.LongTensor) : batch_size * vocab_size
+            
+        - bar_outcome (torch.LongTensor) : batch_size * 1 (binary)
         - dir         (torch.LongTensor) : batch_size * 1
         - filename    (str)              : batch_size * 1
       }
@@ -232,16 +256,33 @@ def collate_fn(batch):
     We have to pad the sequences with different lengths here & record their lengths respectively, for the dataloader & RNNs to work.
     """
     
-    joints  = [item[0] for item in batch]
-    labels = torch.LongTensor([item[1] for item in batch])
-    bar_outcome = torch.LongTensor([item[2] for item in batch])
-    directions = torch.LongTensor([item[3] for item in batch])
-    names  = [item[4] for item in batch]
+    r_joints  = [item[0] for item in batch]
+    c_joints  = [item[1] for item in batch]
+    t_joints  = [item[2] for item in batch]
+    
+    r_labels = torch.LongTensor([item[3] for item in batch])
+    c_labels = torch.LongTensor([item[4] for item in batch])
+    t_labels = torch.LongTensor([item[5] for item in batch])
+    
+    bar_outcome = torch.LongTensor([item[6] for item in batch])
+    directions = torch.LongTensor([item[7] for item in batch])
+    names  = [item[8] for item in batch]
 
-    x = [torch.Tensor(xx) for xx in joints]
+    r_joints = [torch.Tensor(xx) for xx in r_joints]
+    c_joints = [torch.Tensor(xx) for xx in c_joints]
+    t_joints = [torch.Tensor(xx) for xx in t_joints]
 
-    lens = torch.LongTensor([len(xx) for xx in joints])
-    x_pad = pad_sequence([xx for xx in x], batch_first=True, padding_value=0)
+    r_lens = torch.LongTensor([len(xx) for xx in r_joints])
+    c_lens = torch.LongTensor([len(xx) for xx in c_joints])
+    t_lens = torch.LongTensor([len(xx) for xx in t_joints])
+    
+    r_pad = pad_sequence([xx for xx in r_joints], batch_first=True, padding_value=0)
+    c_pad = pad_sequence([xx for xx in c_joints], batch_first=True, padding_value=0)
+    t_pad = pad_sequence([xx for xx in t_joints], batch_first=True, padding_value=0)
 
-    ret = {'x' : x_pad, 'x_lens' : lens, 'labels': labels, 'bar_outcome' : bar_outcome, 'dir': directions, 'filename' : names}
+    ret = {'r_joints' : r_pad, 'c_joints' : c_pad, 't_joints' : t_pad, 'r_lens' : r_lens, 'c_lens' : c_lens, 't_lens' : t_lens,  \
+           'r_labels': r_labels, 'c_labels': c_labels, 't_labels': t_labels,  \
+           'bar_outcome' : bar_outcome, 'dir': directions, 'filename' : names
+          }
+    
     return ret

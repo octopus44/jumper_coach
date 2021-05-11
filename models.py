@@ -50,6 +50,16 @@ class PoseEmbedding(nn.Module):
                           hidden_size=embed_dim,
                           bidirectional=False,
                           batch_first=True)
+        
+    def reset(self):
+        """
+        For K-Fold cross validation.
+        Try resetting model weights to avoid weight leakage.
+        """
+        for layer in self.children():
+            if hasattr(layer, 'reset_parameters'):
+                #print(f'Reset trainable parameters of layer = {layer}')
+                layer.reset_parameters()
 
     def forward(self, x, lens, d=None):
         """
@@ -83,13 +93,35 @@ class PoseEmbedding(nn.Module):
         return w, lens
 
 class Classifier(nn.Module):
-    def __init__(self, embed_dim, n_classes=2):
+    """
+    Defines classifier composed of linear layers.
+    Inputs: 
+    layer_sizes (tuple): A combination of linear layer sizes (len >= 2).
+                         e.g. (512, 64, 2) will define linear1(512, 64) and linear2(64, 2).
+    """
+    def __init__(self, *layer_sizes):
         super().__init__()
-        self.linear = nn.Linear(in_features=embed_dim, out_features=n_classes)
+        layer_sizes = [*layer_sizes]
+        assert len(layer_sizes) > 1
+        
+        self.linears = []
+        for i in range(len(layer_sizes) - 1):
+            self.linears.append(nn.Linear(in_features=layer_sizes[i], out_features=layer_sizes[i+1]))
+        self.linears = nn.Sequential(*self.linears)
         self.activation = None
+        
+    def reset(self):
+        """
+        For K-Fold cross validation.
+        Try resetting model weights to avoid weight leakage.
+        """
+        for layer in self.linears.children():
+            if hasattr(layer, 'reset_parameters'):
+                #print(f'Reset trainable parameters of layer = {layer}')
+                layer.reset_parameters()
 
     def forward(self, x):
-        x = self.linear(x)
+        x = self.linears(x)
         if self.activation:
             x = self.activation(x)
         return x
@@ -117,20 +149,15 @@ class SequenceAnalysis(nn.Module):
                                              sliding_window_size=sliding_window_size, 
                                              variant=variant,
                                              use_direction=use_direction)
-        self.classifier      = Classifier(embed_dim=embed_dim) if vocab_size is None \
-                          else Classifier(embed_dim=embed_dim, n_classes=vocab_size) 
+        self.classifier      = Classifier(embed_dim, 2) if vocab_size is None \
+                          else Classifier(embed_dim, vocab_size) 
 
     def reset(self):
-        """
-        For K-Fold cross validation.
-        Try resetting model weights to avoid weight leakage.
-        """
-
-        for module in [self.pose_embedding, self.classifier]:
-            for layer in module.children():
-                if hasattr(layer, 'reset_parameters'):
-                    #print(f'Reset trainable parameters of layer = {layer}')
-                    layer.reset_parameters()
+        for module in self.children():
+            if isinstance(module, PoseEmbedding):
+                module.reset()
+            elif isinstance(module, Classifier):
+                module.reset()
 
     def forward(self, x, lens, d=None): 
         """
@@ -155,3 +182,63 @@ class SequenceAnalysis(nn.Module):
 
         probs = self.classifier(st)               # outputs probability
         return probs
+
+class JumpPrediction(nn.Module):
+    def __init__(self, embed_dim=128, sliding_window_size=7, variant=0, use_direction=True, vocab_size=None):
+        super().__init__()
+        self.runup_embedding  = PoseEmbedding(embed_dim=embed_dim, 
+                                             sliding_window_size=sliding_window_size, 
+                                             variant=variant,
+                                             use_direction=use_direction)
+        self.curve_embedding  = PoseEmbedding(embed_dim=embed_dim, 
+                                             sliding_window_size=sliding_window_size, 
+                                             variant=variant,
+                                             use_direction=use_direction)
+        self.takeoff_embedding  = PoseEmbedding(embed_dim=embed_dim, 
+                                             sliding_window_size=sliding_window_size, 
+                                             variant=variant,
+                                             use_direction=use_direction)
+        self.classifier = Classifier(embed_dim * 3, 64, 2)
+        self.classifier_r = Classifier(embed_dim, vocab_size)
+        self.classifier_c = Classifier(embed_dim, vocab_size)
+        self.classifier_t = Classifier(embed_dim, vocab_size)
+        
+    def reset(self):
+        for module in self.children():
+            if isinstance(module, PoseEmbedding):
+                module.reset()
+            elif isinstance(module, Classifier):
+                module.reset()
+        
+    def forward(self, r, c, t, r_lens, c_lens, t_lens, d=None): 
+        """
+        Forward pass of defined network.
+        
+        Inputs: 
+        - x     (torch.Tensor(batch_size, max_length, 75)) : Input features. Padded to be the max length in each batch. 
+        - lens  (torch.LongTensor(batch_size))             : Stores original lengths of each sample in batch, e.g.[122, 94, 130, 78]
+        - d     (torch.LongTensor(batch_size))             : 'direction' indicator for each input sequence. (0/1 for left/right)
+
+        Outputs:
+        - probs (torch.Tensor(batch_size, num_classes))    : Probability of each label.
+        """
+        r, r_lens = self.runup_embedding(r, r_lens, d) # bs, embed_dim, L
+        c, c_lens = self.curve_embedding(c, c_lens, d)
+        t, t_lens = self.takeoff_embedding(t, t_lens, d)
+        
+        st = [] # embedding vectors
+        for x, lens in zip([r, c, t], [r_lens, c_lens, t_lens]):
+            _st = []
+            for inst, l in zip(x.permute(0, 2, 1), lens): # batch
+                _st.append(inst[:, l - 1])             # stack RNN output feature vectors & exclude padding
+            _st = torch.stack(_st)                      # bs * embed_dim
+            st.append(_st)
+            
+        r_probs = self.classifier_r(st[0]) # bs * vocab_size
+        c_probs = self.classifier_c(st[1])
+        t_probs = self.classifier_t(st[2])
+        seg_probs = torch.cat([r_probs, c_probs, t_probs], dim=1) # bs * (3*vocab_size)
+        
+        st = torch.cat(st, dim=1)
+        probs = self.classifier(st) # bs * 2
+        return probs, seg_probs
