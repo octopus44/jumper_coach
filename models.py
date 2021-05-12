@@ -109,22 +109,19 @@ class Classifier(nn.Module):
         for i in range(len(layer_sizes) - 1):
             self.linears.append(nn.Linear(in_features=layer_sizes[i], out_features=layer_sizes[i+1]))
         self.linears = nn.Sequential(*self.linears)
-        self.activation = None
         
     def reset(self):
         """
         For K-Fold cross validation.
         Try resetting model weights to avoid weight leakage.
         """
-        for layer in self.linears.children():
+        for layer in self.linears:
             if hasattr(layer, 'reset_parameters'):
                 #print(f'Reset trainable parameters of layer = {layer}')
                 layer.reset_parameters()
 
     def forward(self, x):
         x = self.linears(x)
-        if self.activation:
-            x = self.activation(x)
         return x
 
 class SequenceAnalysis(nn.Module):
@@ -217,7 +214,7 @@ class JumpPrediction(nn.Module):
                                              sliding_window_size=sliding_window_size, 
                                              variant=variant,
                                              use_direction=use_direction)
-        self.classifier = Classifier(embed_dim * 3, 64, 2)
+        self.classifier = Classifier(embed_dim * 3, 64, 1) ######
         self.classifier_r = Classifier(embed_dim, vocab_size)
         self.classifier_c = Classifier(embed_dim, vocab_size)
         self.classifier_t = Classifier(embed_dim, vocab_size)

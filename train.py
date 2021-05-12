@@ -14,7 +14,7 @@ def hamming_distance(a, b):
     a, b = a.cpu().detach().numpy(), b.cpu().detach().numpy()
     return np.sum([(a1 != b1) for (a1, b1) in zip(a, b)])
 
-def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay=1e-2,  pos_weight=5.0, alpha=0.9, n_splits=5):
+def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, lr_bar=1e-3, weight_decay=1e-2,  pos_weight=5.0, alpha=0.9, n_splits=5):
     """
     Training pipeline.
     
@@ -35,7 +35,8 @@ def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay
     """
     kfold_dataset = kfold_split(dataset, n_splits=n_splits)
     
-    bin_criterion = nn.CrossEntropyLoss()
+    #bin_criterion = nn.CrossEntropyLoss()
+    bin_criterion = nn.BCEWithLogitsLoss()
     pos_weight = torch.ones(dataset.vocab_size * 3) / pos_weight
     seg_criterion = nn.BCEWithLogitsLoss(pos_weight.cuda())
     model.cuda()
@@ -50,11 +51,13 @@ def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay
         
         model.reset()
         seg_fc_params = [p for n,p in model.named_parameters() if n.startswith('classifier_')] # seg classifiers are 'classifier_r', etc.
-        other_params = [p for n,p in model.named_parameters() if not n.startswith('classifier_')]
+        bar_fc_params = [p for n,p in model.named_parameters() if n.startswith('classifier.')]
+        other_params = [p for n,p in model.named_parameters() if not n.startswith('classifier')]
         
         optimizer = torch.optim.AdamW([
             {'params': other_params},
-            {'params': seg_fc_params, 'lr' : lr_seg}
+            {'params': seg_fc_params, 'lr' : lr_seg},
+            {'params': bar_fc_params, 'lr' : lr_bar}
         ], lr=lr)
 
         print(f"\nFold {f}")
@@ -70,7 +73,7 @@ def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay
                 d, y = ret['dir'].cuda(), ret['bar_outcome'].cuda()
                 seg = torch.cat([ret['r_labels'], ret['c_labels'], ret['t_labels']],dim=1).type(torch.FloatTensor).cuda()
                 probs, seg_probs = model(r, c, t, r_lens, c_lens, t_lens, d)
-                loss1 = bin_criterion(probs, y)
+                loss1 = bin_criterion(probs.squeeze(1), y.type(torch.FloatTensor).cuda()) #squeeze
                 loss2 = seg_criterion(seg_probs, seg) # bs*num_classes, bs*num_classes
 
                 loss = alpha * loss1 + (1.0 - alpha) * loss2
@@ -80,37 +83,31 @@ def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, weight_decay
             
             # Validation loop
             model.eval()
-            correct, errors = 0, 0
-            for ret in trainloader:
-                r, r_lens = ret['r_joints'].cuda(), ret['r_lens']
-                c, c_lens = ret['c_joints'].cuda(), ret['c_lens']
-                t, t_lens = ret['t_joints'].cuda(), ret['t_lens']
-                d, y = ret['dir'].cuda(), ret['bar_outcome'].cuda()
-                seg = torch.cat([ret['r_labels'], ret['c_labels'], ret['t_labels']],dim=1).type(torch.FloatTensor).cuda()
+            seg_accs = []
+            bin_accs = []
+            for loader, num_samples in zip([trainloader, validloader], [len(train_dataset), len(valid_dataset)]):
+                bar_errors, seg_errors = 0, 0
+                for ret in loader:
+                    r, r_lens = ret['r_joints'].cuda(), ret['r_lens']
+                    c, c_lens = ret['c_joints'].cuda(), ret['c_lens']
+                    t, t_lens = ret['t_joints'].cuda(), ret['t_lens']
+                    d, y = ret['dir'].cuda(), ret['bar_outcome'].cuda()
+                    seg = torch.cat([ret['r_labels'], ret['c_labels'], ret['t_labels']],dim=1).type(torch.FloatTensor).cuda()
                 
-                probs, seg_probs = model(r, c, t, r_lens, c_lens, t_lens, d) # scales to between 0 and 1
-                correct += torch.sum(torch.argmax(probs, dim=1) == y)
+                    probs, seg_probs = model(r, c, t, r_lens, c_lens, t_lens, d) # scales to between 0 and 1
+                    #correct += torch.sum(torch.argmax(probs, dim=1) == y)
+                    pred = torch.where(torch.sigmoid(probs) > 0.5, torch.ones_like(probs), torch.zeros_like(probs)).squeeze(1) # bce
+                    bar_errors += hamming_distance(pred, y)
 
-                pred = torch.where(torch.sigmoid(seg_probs) > 0.5, torch.ones_like(seg_probs), torch.zeros_like(seg_probs)) # bce
-                errors += hamming_distance(pred, seg)
-            train_seg_acc = 1 - (errors / (len(train_dataset) * dataset.vocab_size * 3)) #
-            train_bin_acc = correct / len(train_dataset)
-            
-            correct, errors = 0, 0
-            for ret in validloader:
-                r, r_lens = ret['r_joints'].cuda(), ret['r_lens']
-                c, c_lens = ret['c_joints'].cuda(), ret['c_lens']
-                t, t_lens = ret['t_joints'].cuda(), ret['t_lens']
-                d, y = ret['dir'].cuda(), ret['bar_outcome'].cuda()
-                seg = torch.cat([ret['r_labels'], ret['c_labels'], ret['t_labels']],dim=1).type(torch.FloatTensor).cuda()
+                    pred = torch.where(torch.sigmoid(seg_probs) > 0.5, torch.ones_like(seg_probs), torch.zeros_like(seg_probs)) # bce
+                    seg_errors += hamming_distance(pred, seg)
+                seg_acc = 1 - (seg_errors / (num_samples * dataset.vocab_size * 3)) #
+                bin_acc = 1 - (bar_errors / (num_samples)) 
+                seg_accs.append(seg_acc)
+                bin_accs.append(bin_acc)
                 
-                probs, seg_probs = model(r, c, t, r_lens, c_lens, t_lens, d)
-                correct += torch.sum(torch.argmax(probs, dim=1) == y) # binary classification
-                
-                pred = torch.where(torch.sigmoid(seg_probs) > 0.5, torch.ones_like(seg_probs), torch.zeros_like(seg_probs)) # bce
-                errors += hamming_distance(pred, seg)
-            val_seg_acc = 1 - (errors / (len(valid_dataset) * dataset.vocab_size* 3)) # 
-            val_bin_acc = correct / len(valid_dataset)
+            train_seg_acc, val_seg_acc = seg_accs
+            train_bin_acc, val_bin_acc = bin_accs
             
             if (e+1) % (epochs // 5) == 0:
                 print("Epoch: {}, [Bar] Train Acc: {:.4f}, Valid Acc: {:.4f}, [Seg] Train Acc: {:.4f}, Valid Acc: {:.4f}".format(
@@ -147,12 +144,14 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='specify number of epochs to train.')
     parser.add_argument('--lr', type=float, default=1e-4, help='specify learning rate.')
     parser.add_argument('--lr_seg', type=float, default=1e-3, help='specify learning rate for segment classification layers.')
+    parser.add_argument('--lr_bar', type=float, default=1e-3, help='specify learning rate for bar outcome classification layers.')
     
     # Other training hyperparameters
     parser.add_argument('--weight_decay', type=float, default=1e-2, help='specify regularizer weight.')
     parser.add_argument('--pos_weight', type=float, default=5.0, help='specify weighting for bce loss.')
     parser.add_argument('--alpha', type=float, default=0.9, help='specify weighting between both loss functions.')
     parser.add_argument('--n_splits', type=int, default=5, help='specify number of folds for K-fold cross validation.')
+    parser.add_argument('--seed', type=int, default=-1, help='specify random seed.')
     
     args = parser.parse_args()
     
@@ -161,10 +160,12 @@ if __name__ == "__main__":
         print("Merging dataset, saving to: {}".format(args.dataset_path))
         match_labels(trajectories='data/joint_trajectories_norm.pkl', annotations='data/labels.csv', output_file=args.dataset_path)
         
-    dataset = Frames(args.dataset_path, vocab_size=args.vocab_size)
+    dataset = Frames(args.dataset_path, vocab_size=args.vocab_size, seed=args.seed if args.seed >= 0 else None)
     model = JumpPrediction(embed_dim=args.embed_dim, sliding_window_size=args.sliding_window_size, variant=args.variant, vocab_size=dataset.vocab_size)
     model = train(model, dataset, vocab_size=args.vocab_size, epochs=args.epochs, \
-                  lr=args.lr, lr_seg=args.lr_seg, weight_decay=args.weight_decay, pos_weight=args.pos_weight, alpha=args.alpha, n_splits=args.n_splits)
+                  lr=args.lr, lr_seg=args.lr_seg, lr_bar=args.lr_bar, weight_decay=args.weight_decay, \
+                  pos_weight=args.pos_weight, alpha=args.alpha, n_splits=args.n_splits)
+    
     if args.save_model_path:
         print("Saving model to: {}".format(args.save_model_path))
         torch.save(model.state_dict(), args.save_model_path)

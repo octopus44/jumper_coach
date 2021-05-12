@@ -135,7 +135,7 @@ class Frames(Dataset):
     Inputs:
     dataset_pkl_file  (str) : Path to preprocessed pickle file.
     vocab_size        (int) : Specify how many most frequent labels to preserve. Will also be classifier dim.
-    multi            (bool) : Specify either multi-label case or not. (False is deprecated)
+    seed              (int) : Random seed.
     
     Outputs (__getitem__ returns):
     for [runup, curve, takeoff]:
@@ -146,7 +146,7 @@ class Frames(Dataset):
     names       : str(sequence name, for reference only, e.g. 'C0001')}
     """
     
-    def __init__(self, dataset_pkl_file='data/dataset_with_labels.pkl', vocab_size=10, multi=True):
+    def __init__(self, dataset_pkl_file='data/dataset_with_labels.pkl', vocab_size=10, seed=None):
         with open(dataset_pkl_file, 'rb') as handle:
             data = pickle.load(handle)
             
@@ -156,10 +156,7 @@ class Frames(Dataset):
         self.names = []
         self.directions = []
         
-        if multi:
-            self.vocab_size = vocab_size
-        else:
-            self.vocab_size = vocab_size + 1 # additional slot
+        self.vocab_size = vocab_size
         
         # Temporary fake data generator. Will load and process from dataset later.
         # generate dictionary here
@@ -189,16 +186,18 @@ class Frames(Dataset):
                                                      [self.r_vocab2idx, self.c_vocab2idx, self.t_vocab2idx]):
                 
                 joints.append(data[key][seg+'_poses'].reshape(-1, 75))  # T * 75
-                labels.append(self.tokenize(data[key][seg+'_labels'], mapping=mapping, multi=multi)) 
+                labels.append(self.tokenize(data[key][seg+'_labels'], mapping=mapping)) 
             
         # prevent always choosing the same items for each fold, when doing kfold.
         temp = list(zip(self.r_joints, self.c_joints, self.t_joints, self.r_labels, self.c_labels, self.t_labels, \
                         self.bar_outcome, self.names, self.directions))
+        if seed:
+            random.seed(seed)
         random.shuffle(temp)
         self.r_joints, self.c_joints, self.t_joints, self.r_labels, self.c_labels, self.t_labels, \
         self.bar_outcome, self.names, self.directions = zip(*temp)
 
-    def tokenize(self, text, mapping, multi=True):
+    def tokenize(self, text, mapping):
         """
         Inputs:
         text    (list) : list of terms (must be present in vocabulary), e.g. ["gin tonic", "kamikaze"].
@@ -207,17 +206,12 @@ class Frames(Dataset):
         Outputs: 
         labels (np.ndarray) : multi-hot encoding of text, indicating the presence of each vocab item.  
         """
-        if multi:
-            multi_hot = np.zeros(self.vocab_size)
-            for v, k in mapping.items(): # descending order from most common
-                if v in text:
-                    multi_hot[k] = 1
-            return multi_hot
-        else:
-            for v, k in mapping.items(): # descending order from most common
-                if v in text:
-                    return k
-            return self.vocab_size - 1 # return unknown token (last slot) in this case
+        multi_hot = np.zeros(self.vocab_size)
+        for v, k in mapping.items(): # descending order from most common
+            if v in text:
+                multi_hot[k] = 1
+        return multi_hot
+
 
     def __len__(self):
         return len(self.names)
