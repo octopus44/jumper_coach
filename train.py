@@ -37,7 +37,7 @@ def train(model, dataset, vocab_size, epochs, lr=1e-4, lr_seg=1e-3, lr_bar=1e-3,
     
     #bin_criterion = nn.CrossEntropyLoss()
     bin_criterion = nn.BCEWithLogitsLoss()
-    pos_weight = torch.ones(dataset.vocab_size * 3) / pos_weight
+    pos_weight = torch.ones(dataset.vocab_size * 3) * pos_weight
     seg_criterion = nn.BCEWithLogitsLoss(pos_weight.cuda())
     model.cuda()
     
@@ -161,6 +161,9 @@ if __name__ == "__main__":
         match_labels(trajectories='data/joint_trajectories_norm.pkl', annotations='data/labels.csv', output_file=args.dataset_path)
         
     dataset = Frames(args.dataset_path, vocab_size=args.vocab_size, seed=args.seed if args.seed >= 0 else None)
+    #print(dataset.neg_to_pos_ratio(field="labels"))
+    #print(dataset.neg_to_pos_ratio(field="bar_outcome"))
+    
     model = JumpPrediction(embed_dim=args.embed_dim, sliding_window_size=args.sliding_window_size, variant=args.variant, vocab_size=dataset.vocab_size)
     model = train(model, dataset, vocab_size=args.vocab_size, epochs=args.epochs, \
                   lr=args.lr, lr_seg=args.lr_seg, lr_bar=args.lr_bar, weight_decay=args.weight_decay, \

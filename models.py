@@ -109,13 +109,13 @@ class Classifier(nn.Module):
         for i in range(len(layer_sizes) - 1):
             self.linears.append(nn.Linear(in_features=layer_sizes[i], out_features=layer_sizes[i+1]))
         self.linears = nn.Sequential(*self.linears)
-        
+
     def reset(self):
         """
         For K-Fold cross validation.
         Try resetting model weights to avoid weight leakage.
         """
-        for layer in self.linears:
+        for layer in self.linears.children():
             if hasattr(layer, 'reset_parameters'):
                 #print(f'Reset trainable parameters of layer = {layer}')
                 layer.reset_parameters()
@@ -243,12 +243,12 @@ class JumpPrediction(nn.Module):
         c, c_lens = self.curve_embedding(c, c_lens, d)
         t, t_lens = self.takeoff_embedding(t, t_lens, d)
         
-        st = [] # embedding vectors
+        st = [] # embedding vectors of last timestep
         for x, lens in zip([r, c, t], [r_lens, c_lens, t_lens]):
             _st = []
             for inst, l in zip(x.permute(0, 2, 1), lens): # batch
-                _st.append(inst[:, l - 1])             # stack RNN output feature vectors & exclude padding
-            _st = torch.stack(_st)                      # bs * embed_dim
+                _st.append(inst[:, l - 1])                # stack RNN output feature vectors & exclude padding
+            _st = torch.stack(_st)                        # bs * embed_dim
             st.append(_st)
             
         r_probs = self.classifier_r(st[0]) # bs * vocab_size
@@ -257,5 +257,6 @@ class JumpPrediction(nn.Module):
         seg_probs = torch.cat([r_probs, c_probs, t_probs], dim=1) # bs * (3*vocab_size)
         
         st = torch.cat(st, dim=1)
-        probs = self.classifier(st) # bs * 2
+        probs = self.classifier(st) # bs * 1
+        
         return probs, seg_probs

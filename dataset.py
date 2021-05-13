@@ -212,6 +212,15 @@ class Frames(Dataset):
                 multi_hot[k] = 1
         return multi_hot
 
+    def neg_to_pos_ratio(self,field="labels"):
+        valid_fields = ["labels","bar_outcome"]
+        assert field in valid_fields
+        if field =="labels":
+            pos_count = np.sum(np.hstack((self.r_labels,self.c_labels, self.t_labels)),axis=0)
+            return (len(self.r_labels) - pos_count )/pos_count
+        elif field=="bar_outcome":
+            pos_count = np.sum([self.bar_outcome],axis=1)
+            return (len(self.bar_outcome)-pos_count)/pos_count
 
     def __len__(self):
         return len(self.names)
