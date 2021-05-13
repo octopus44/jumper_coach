@@ -5,6 +5,7 @@ import pickle as pkl
 import pandas as pd
 import matplotlib.pyplot as plt
 from data_utils import plot_skeleton_3d
+import psycopg2
 
 
 def get_data(filename):
@@ -27,8 +28,9 @@ def show_position(video_name,joint_dict):
     print(joint_dict[video_name])
     print(len(joint_dict))
 
-def store_jumper():
+def store_jumpers():
     count = 0
+
     with open('insert_ref_data.sql', 'r') as fm:
         Lines = fm.readlines()
         for line in Lines:
@@ -36,15 +38,20 @@ def store_jumper():
             print("Line{}: {}".format(count, line.strip()))
 
 
-def store_videos(joint_dict,workfile):
+def store_videos(joint_dict, workfile):
+    s = ''
     with open(workfile,'w') as f:
         s = (f'SET TIMEZONE = "America/New_York";\n')
+        s = s + (f"insert into jump_part (jump_part_code ) values " )
+        keys_view = joint_dict.keys()
+        key_iterator = iter(keys_view)
+
+        for i in range(len(joint_dict.keys())):
+            if i > 0: s = s + (f", ")
+            first_key = next(key_iterator)
+            s = s + (f"('{first_key}')")
+        s = s + (f";\n")
         f.write(s)
-        store_jumpers(f)
-        for i in joint_dict.keys():
-            s = (f"insert into jump_part (jump_part_code ) values " +
-                 f"('{i}');\n")
-            f.write(s)
 
 
 def main(arg):
@@ -59,8 +66,13 @@ def main(arg):
     # get joint trajectory for a specific video
     jump_video, joint_dict, joint_t_n, pose = get_data(filename)
     plot_skeleton_3d(joint_dict["C0032b"][96 - 17, :, :])
-    store_videos(joint_dict,'save_me.csv')
+    store_videos(joint_dict,'search_space/search_dml.sql')
     # plt.show()
 
 
+if __name__ == "__main__":
+    main(argv)
+    # unittest.main(argv)
 
+# ALTER  USER   postgres   WITH   PASSWORD   'XXXX';
+# NOW()::timestamp;

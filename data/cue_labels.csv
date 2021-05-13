@@ -1,0 +1,274 @@
+﻿ jumper_anon,name,seg,cue_label
+ a,C0002,runup,cross sync
+ a,C0002,runup,wide knee to knee separation
+ a,C0002,runup,no bound
+ a,C0002,runup,good knee lift
+ a,C0002,curve,lean into curve
+ a,C0002,takeoff,strong knee drive
+ a,C0020b,runup,cross sync
+ a,C0020b,runup,wide knee to knee separation
+ a,C0020b,runup,no bound
+ a,C0020b,runup,good knee lift
+ a,C0020b,curve,lean into curve
+ a,C0020b,takeoff,strong knee drive
+a,C0025b,runup,cross sync
+a,C0025b,runup,wide knee to knee separation
+a,C0025b,runup,no bound
+a,C0025b,runup,good knee lift
+a,C0025b,curve,lean into curve
+a,C0025b,takeoff,strong knee drive
+a,C0025c,runup,cross sync
+a,C0025c,runup,wide knee to knee separation
+a,C0025c,runup,no bound
+a,C0025c,runup,good knee lift
+a,C0025c,curve,lean into curve
+a,C0025c,takeoff,foot too close to mat
+a,C0027c,runup,cross sync
+a,C0027c,runup,wide knee to knee separation
+a,C0027c,runup,good knee lift
+a,C0027c,curve,chopped step
+a,C0027c,takeoff,strong knee drive
+a,C0027c,runup,no bound
+a,C0033b,runup,cross sync
+a,C0033b,runup,wide knee to knee separation
+a,C0033b,runup,good knee lift
+a,C0033b,curve,lean into curve
+a,C0033b,takeoff,strong knee drive
+a,C0033b,runup,no bound
+a,C0037b,runup,no bound
+a,C0037b,runup,cross sync
+a,C0037b,runup,wide knee to knee separation
+a,C0037b,runup,good knee lift
+a,C0037b,curve,lean into curve
+a,C0037b,takeoff,strong knee drive
+a,C0041b,runup,no bound
+a,C0041b,runup,cross sync
+a,C0041b,runup,wide knee to knee separation
+a,C0041b,runup,good knee lift
+a,C0041b,curve,lean into curve
+a,C0041b,takeoff,strong knee drive
+a,C0046,runup,no bound
+a,C0046,runup,cross sync
+a,C0046,runup,wide knee to knee separation
+a,C0046,runup,good knee lift
+a,C0046,curve,lean into curve
+a,C0046,takeoff,power jump
+a,C0051,runup,bound
+a,C0051,runup,cross sync
+a,C0051,runup,wide knee to knee separation
+a,C0051,runup,good knee lift
+a,C0051,curve,lean into curve
+a,C0051,takeoff,power jump
+a,C0053,runup,no bound
+a,C0053,runup,cross sync
+a,C0053,runup,wide knee to knee separation
+a,C0053,runup,good knee lift
+a,C0053,curve,lean into curve
+a,C0053,takeoff,power jump
+a,C0053b,runup,no bound
+a,C0053b,runup,cross sync
+a,C0053b,runup,wide knee to knee separation
+a,C0053b,runup,good knee lift
+a,C0053b,curve,lean into curve
+a,C0053b,takeoff,strong knee drive
+a,C0055,runup,no bound
+a,C0055,runup,cross sync
+a,C0055,runup,wide knee to knee separation
+a,C0055,runup,good knee lift
+a,C0055,curve,lean into curve
+a,C0055,takeoff,strong knee drive
+a,C0057b,runup,no bound
+a,C0057b,runup,wide knee to knee separation
+a,C0057b,runup,good knee lift
+a,C0057b,curve,lean into curve
+a,C0057b,takeoff,strong knee drive
+a,C0058b,runup,no bound
+a,C0058b,runup,cross sync
+a,C0058b,runup,wide knee to knee separation
+a,C0058b,runup,good knee lift
+a,C0058b,curve,lean into curve
+a,C0058b,takeoff,strong knee drive
+a,C0065b,runup,no bound
+a,C0065b,runup,cross sync
+a,C0065b,runup,wide knee to knee separation
+a,C0065b,runup,good knee lift
+a,C0065b,curve,lean into curve
+a,C0065b,takeoff,strong knee drive
+a,Anna_H_11-2017,runup,no bound
+a,Anna_H_11-2017,runup,cross sync
+a,Anna_H_11-2017,curve,lean into curve
+a,Anna_H_11-2017,takeoff,power jump
+a,C0029b,runup,bound
+a,C0029b,runup,cross sync
+a,C0029b,curve,lean into curve
+a,C0029b,takeoff,power jump
+a,C0030b,runup,no bound
+a,C0030b,runup,cross sync
+a,C0030b,curve,lean into curve
+a,C0030b,takeoff,foot too far from mat
+a,C0032b,runup,bound
+a,C0032b,runup,cross sync
+a,C0032b,curve,chopped step
+a,C0032b,takeoff,foot too far from mat
+a,C0035,runup,no bound
+a,C0035,runup,cross sync
+a,C0035,curve,chopped step
+a,C0035,takeoff,foot too far from mat
+a,C0037,runup,no bound
+a,C0037,runup,cross sync
+a,C0037,curve,chopped step
+a,C0037,takeoff,foot too far from mat
+a,C0041,runup,no bound
+a,C0041,runup,cross sync
+a,C0041,curve,lean into curve
+a,C0041,takeoff,foot too far from mat
+a,C0043,runup,no bound
+a,C0043,runup,cross sync
+a,C0043,curve,lean into curve
+a,C0043,takeoff,foot too far from mat
+a,C0049,runup,no bound
+a,C0049,runup,cross sync
+a,C0049,curve,lean into curve
+a,C0049,takeoff,compression on plant
+a,C0061c,runup,no bound
+a,C0061c,runup,cross sync
+a,C0061c,curve,lean into curve
+a,C0061c,takeoff,foot too far from mat
+,C0070b,runup,no bound
+,C0070b,runup,cross sync
+,C0070b,curve,lean into curve
+,C0070b,takeoff,foot too far from mat
+a,C0064b,runup,no bound
+a,C0064b,runup,running on toes
+a,C0064b,runup,good knee lift
+a,C0064b,curve,lean into curve
+a,C0064b,takeoff,power jump
+,C0067,runup,no bound
+,C0067,runup,cross sync
+,C0067,curve,lean into curve
+,C0067,takeoff,power jump
+,C0069,runup,no bound
+,C0069,runup,cross sync
+,C0069,curve,lean into curve
+,C0069,takeoff,power jump
+,C0074,runup,no bound
+,C0074,runup,cross sync
+,C0074,curve,lean into curve
+,C0074,takeoff,power jump
+ b,C0001,runup,no bound
+ b,C0017,runup,bound
+ b,C0022b,runup,bound
+ b,C0034,runup,bound
+ b,C0034b,runup,no bound
+ b,C0034c,runup,bound
+ b,C0036,runup,bound
+ b,C0040,runup,bound
+ b,C0042,runup,bound
+ b,C0056b,runup,bound
+ b,C0059,runup,bound
+ b,C0073,runup,bound
+ b,julia_highlight_reelb,runup,no bound
+ b,julia_highlight_reelc,runup,no bound
+ b,C0014,runup,bound
+ b,C0015,runup,bound
+ b,C0016,runup,bound
+ b,C0018,runup,bound
+ b,C0019b,runup,bound
+ b,C0020,runup,bound
+ b,C0021,runup,bound
+ b,C0023,runup,bound
+ b,C0024,runup,bound
+ b,C0026b,runup,bound
+ b,C0027b,runup,bound
+ b,C0030,runup,bound
+ b,C0031b,runup,bound
+ b,C0032,runup,bound
+ b,C0033,runup,bound
+ b,C0038,runup,bound
+ b,C0062,runup,bound
+ b,C0065,runup,bound
+ b,C0068b,runup,no bound
+ b,C0068c,runup,bound
+ b,C0078,runup,no bound
+ c,C0010b,runup,no bound
+ d,C0011,runup,no bound
+ d,C0013,runup,no bound
+ d,C0019,runup,no bound
+ d,C0022,runup,no bound
+ d,C0039,runup,no bound
+ d,C0070,runup,no bound
+ d,C0027,runup,no bound
+ d,C0031,runup,no bound
+d,C0050,runup,no bound
+ e,C0023b,runup,no bound
+ e,C0056,runup,no bound
+ f,C0024b,runup,bound
+ f,C0028b,runup,bound
+ f,C0032c,runup,bound
+ f,C0036b,runup,bound
+ f,C0040b,runup,bound
+ f,C0045,runup,bound
+ f,C0050b,runup,bound
+ g,C0063b,runup,no bound
+ h,C0064,runup,bound
+ h,C0072,runup,bound
+ a,C0074,runup,not aggressive
+ b,C0001,runup,good speed
+ b,C0017,runup,power jump
+ b,C0022b,runup,good speed
+ b,C0034,runup,good speed
+ b,C0034b,runup,good speed
+ b,C0034c,runup,good speed
+,C0034c,runup,good lean
+ b,C0036,runup,good speed
+ b,C0040,runup,power jump
+ b,C0042,runup,good speed
+ b,C0056b,runup,power jump
+ b,C0059,runup,good spped
+ b,C0073,runup,power jump
+ b,julia_highlight_reelb,curve,good speed 
+ b,julia_highlight_reelc,takeoff,power jump
+ b,C0014,curve,triple flexion
+ b,C0015,curve,triple flexion
+ b,C0016,curve,triple flexion
+ b,C0018,curve,chopped steps
+ b,C0019b,curve,triple flexion
+ b,C0020,curve,triple flexion
+ b,C0021,runup,slow start
+ b,C0023,runup,slow start
+ b,C0024,curve,triple flexion
+ b,C0026b,curve,triple flexion
+ b,C0027b,curve,lean into curve
+ b,C0030,curve,triple flexion
+ b,C0031b,curve,triple flexion
+ b,C0032,curve,chopped steps
+ b,C0033,takeoff,not angled away
+ b,C0038,curve,triple flexion
+ b,C0062,curve,triple flexion
+ b,C0065,curve,triple flexion
+ b,C0068b,curve,triple flexion
+ b,C0068c,curve,triple flexion
+ b,C0078,runup,"no speed, no to at end"
+ c,C0010b,runup,smooth run
+ d,C0011,takeoff,good arch
+ d,C0013,curve,smooth run
+ d,C0019,curve,smooth run
+ d,C0022,curve,smooth run
+ d,C0039,takeoff,good arch
+ d,C0070,curve,smooth run
+ d,C0027,runup,slow start
+ d,C0031,runup,slow start
+d,C0050,curve,good run
+ e,C0023b,curve,good lean
+ e,C0056,takeoff,power jump
+ f,C0024b,takeoff,power jump
+ f,C0028b,takeoff,power jump
+ f,C0032c,takeoff,power jump
+ f,C0036b,takeoff,compressed at takeof
+ f,C0040b,curve,triple flexion
+ f,C0045,curve,triple flexion
+ f,C0050b,curve,triple flexion
+ g,C0063b,takeoff,power jump
+ h,C0064,curve,good lean
+ h,C0072,curve,good lean 
+,C0072,takeoff,power jump
